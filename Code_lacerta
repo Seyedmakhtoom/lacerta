@@ -1,0 +1,146 @@
+# Set the working directory and configure CRAN options
+setwd("D:/R/Internship/کارورزی 2/")
+
+options(repos = c(CRAN = "https://cloud.r-project.org/"))
+options(timeout = 99990000000)
+
+############## Required Libraries #########################################
+
+library(httr)
+library(sf)
+library(rgbif)
+library(raster)
+library(geodata)  # Correctly using geodata functions
+library(openxlsx)
+
+############### Code Body #########################################
+
+# Initialize an empty data frame to store all combined data
+all_data <- data.frame()
+
+# Specify the species name
+myspecies <- c("Vulpes vulpes")
+
+# Retry settings for fetching data
+retry_attempts <- 5
+retry_delay <- 5 # seconds
+
+# WorldClim parameters
+res <- 10
+var <- "bio"
+
+# Increase timeout for all connections (specific to geodata package)
+httr::set_config(httr::config(timeout = 10000))
+
+# Iterate over each species
+for (s in myspecies) {
+  gbif_data <- NULL  # Initialize GBIF data as NULL
+  attempt <- 1
+  
+  # Attempt to fetch data with retries
+  while (is.null(gbif_data) && attempt <= retry_attempts) {
+    try({
+      gbif_data <- occ_data(
+        scientificName = s,
+        hasCoordinate = TRUE,
+        limit = 4000,
+        country = "IR",
+        eventDate = "2010,2022"
+      )
+    }, silent = TRUE)
+    
+    if (is.null(gbif_data)) {
+      Sys.sleep(retry_delay)  # Wait before retrying
+      message("Retry attempt: ", attempt)
+      attempt <- attempt + 1
+    }
+  }
+  
+  # Proceed if GBIF data is successfully retrieved
+  if (!is.null(gbif_data) && !is.null(gbif_data$data)) {
+    # Use geodata package to fetch WorldClim data for Iran
+    worldclim_data <- worldclim_country(
+      country = "IR", 
+      var = var, 
+      res = res, 
+      path = tempdir()
+    )
+    
+    print(names(gbif_data$data))
+    
+    myspecies_coords <- gbif_data$data[, c(
+      "species", 
+      "decimalLongitude", 
+      "decimalLatitude", 
+      "eventDate", 
+      "occurrenceStatus", 
+      "coordinateUncertaintyInMeters", 
+      "institutionCode", 
+      "references"
+    )]
+    
+    head(myspecies_coords)
+    
+    # Extract required climatic variables
+    # Index 1, 12, 14 represent Annual Mean Temperature, Annual Precipitation, Precipitation of Driest Month respectively
+    climate_data <- worldclim_data[[c(1, 12, 14)]]
+    climate_data[[1]] <- climate_data[[1]] / 10
+    
+    # Rename the extracted raster layers
+    names(climate_data) <- c(
+      "AnnualMeanTemperature", 
+      "AnnualPrecipitation", 
+      "PrecipitationDriestMonth"
+    )
+    
+    # Elevation
+    elevation_data <- elevation(myspecies_coords, username = "seyedmakhtoom")
+    Elev <- cbind(elevation_data)
+    
+    # Extract climate values for your locations
+    climate_values <- extract(climate_data, myspecies_coords[c("decimalLongitude", "decimalLatitude")])
+    # Combine this data with your existing dataframe
+    Clim_coor <- cbind.data.frame(climate_values)
+    
+    # Calculate slope using raster’s terrain() function and include it in dataset
+    # The unit of the slope value is radians
+    slope_data <- terrain(climate_data[[1]], opt = "slope") # Use temperature layer for slope calculation
+    
+    # If you want to change the unit of the slope value, you should activate the code below instead of the code above:
+    # slope_data <- terrain(climate_data[[1]], opt = "slope", unit = "degrees")
+    
+    slope_values <- extract(slope_data, myspecies_coords[c("decimalLongitude", "decimalLatitude")])
+    Slop_coor <- cbind.data.frame(slope_values)
+    combined_df <- cbind(myspecies_coords, Slop_coor, Clim_coor, Elev)
+    
+    # Ensure correct column names and order
+    colnames(combined_df)[c(2,3)] <- c("longitude", "latitude")
+    combined_df <- combined_df[, c(
+      "species", 
+      "longitude", 
+      "latitude", 
+      "elevation_geonames", 
+      "slope_values", 
+      "AnnualMeanTemperature", 
+      "AnnualPrecipitation", 
+      "PrecipitationDriestMonth", 
+      "eventDate", 
+      "occurrenceStatus", 
+      "coordinateUncertaintyInMeters", 
+      "institutionCode", 
+      "references"
+    )]
+    
+    # Find unique column names
+    unique_names <- unique(colnames(combined_df))
+    # Keep only unique columns
+    combined <- combined_df[unique_names]
+    combined$species <- s
+    all_data <- rbind(all_data, combined)
+  } else {
+    message("Failed to retrieve data for species: ", s)
+  }
+}
+
+# Write the combined data to an Excel file
+write.xlsx(all_data, "Laserta1234.xlsx")
