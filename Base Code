@@ -1,0 +1,41 @@
+library(rgbif)
+library(scrubr)
+library(maps)
+
+# IF YOU HAVE MORE THAN ONE SPECIES ----
+myspecies <- c("Lynx", "Felis chaus")
+
+# download GBIF occurrence data for these species; this may take a long time if there are many data points!
+gbif_data <- occ_data(scientificName = myspecies, hasCoordinate = TRUE, limit = 500)  
+
+# take a look at the downloaded data:
+gbif_data
+
+# check how the data are organized:
+names(gbif_data)
+names(gbif_data[[myspecies[1]]])
+names(gbif_data[[myspecies[1]]]$meta)
+names(gbif_data[[myspecies[1]]]$data)
+
+
+# create and fill a list with only the 'data' section for each species:
+myspecies_coords_list <- vector("list", length(myspecies))
+names(myspecies_coords_list) <- myspecies
+for (s in myspecies) {
+  coords <- gbif_data[[s]]$data[ , c("decimalLongitude", "decimalLatitude", "individualCount", "occurrenceStatus", "coordinateUncertaintyInMeters", "institutionCode", "references")]
+  myspecies_coords_list[[s]] <- data.frame(species = s, coords)
+}
+
+# collapse the list into a data frame:
+myspecies_coords <- as.data.frame(do.call(rbind, myspecies_coords_list), row.names = 1:sum(sapply(myspecies_coords_list, nrow)))
+head(myspecies_coords)
+tail(myspecies_coords)
+
+#save csv
+write.csv(myspecies_coords, "Desktop/MaxEnt/2_ EE/in R/species.csv")
+
+#or save xlsx
+
+library("xlsx")
+write.xlsx(myspecies_coords, "Desktop/MaxEnt/2_ EE/in R/species.xlsx")
+
