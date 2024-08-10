@@ -1,4 +1,5 @@
 # lacerta
+Laverta Code is still under dvelopement. It is not completed, and it maay not work for some species.
 Finding presence points of Lacertas in Iran 
 
 
